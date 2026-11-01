@@ -51,6 +51,7 @@ struct ar {
 	int		 has_strtab;
 	char		 wrote_global_header;
 	char		*strtab;
+	size_t		 strtab_len;
 };
 
 /*
@@ -370,21 +371,26 @@ archive_write_ar_data(struct archive_write *a, const void *buff, size_t s)
 		s = (size_t)ar->entry_bytes_remaining;
 
 	if (ar->is_strtab > 0) {
-		if (ar->has_strtab > 0) {
+		char *p;
+
+		if (ar->is_strtab == 1 && ar->has_strtab > 0) {
 			archive_set_error(&a->archive, EINVAL,
 			    "More than one string tables exist");
 			return (ARCHIVE_WARN);
 		}
 
-		ar->strtab = malloc(s + 1);
-		if (ar->strtab == NULL) {
+		p = realloc(ar->strtab, ar->strtab_len + s + 1);
+		if (p == NULL) {
 			archive_set_error(&a->archive, ENOMEM,
 			    "Can't allocate strtab buffer");
 			return (ARCHIVE_FATAL);
 		}
-		memcpy(ar->strtab, buff, s);
-		ar->strtab[s] = '\0';
+		ar->strtab = p;
+		memcpy(ar->strtab + ar->strtab_len, buff, s);
+		ar->strtab_len += s;
+		ar->strtab[ar->strtab_len] = '\0';
 		ar->has_strtab = 1;
+		ar->is_strtab = 2;
 	}
 
 	ret = __archive_write_output(a, buff, s);

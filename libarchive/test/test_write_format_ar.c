@@ -184,3 +184,57 @@ DEFINE_TEST(test_write_format_ar)
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
 	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
+
+/*
+ * The string table may be written with more than one
+ * archive_write_data() call.
+ */
+DEFINE_TEST(test_write_format_ar_strtab_multiple_writes)
+{
+	struct archive_entry *ae;
+	struct archive *a;
+	size_t used;
+
+	assert((a = archive_write_new()) != NULL);
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_set_format_ar_svr4(a));
+	assertEqualIntA(a, ARCHIVE_OK,
+	    archive_write_open_memory(a, buff, sizeof(buff), &used));
+
+	assert((ae = archive_entry_new()) != NULL);
+	archive_entry_copy_pathname(ae, "//");
+	archive_entry_set_size(ae, strlen(strtab));
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, ae));
+	assertEqualIntA(a, 10, archive_write_data(a, strtab, 10));
+	assertEqualIntA(a, strlen(strtab) - 10,
+	    archive_write_data(a, strtab + 10, strlen(strtab) - 10));
+	archive_entry_free(ae);
+
+	/* This name is in the second part of the table. */
+	assert((ae = archive_entry_new()) != NULL);
+	archive_entry_copy_pathname(ae, "iiijjjdddsssppp.o");
+	archive_entry_set_filetype(ae, AE_IFREG);
+	archive_entry_set_size(ae, 2);
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, ae));
+	assertEqualIntA(a, 2, archive_write_data(a, "hi", 2));
+	archive_entry_free(ae);
+
+	/* A second string table is still rejected. */
+	assert((ae = archive_entry_new()) != NULL);
+	archive_entry_copy_pathname(ae, "//");
+	archive_entry_set_size(ae, 4);
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, ae));
+	assertEqualIntA(a, ARCHIVE_WARN, archive_write_data(a, "x.o/", 4));
+	archive_entry_free(ae);
+
+	archive_write_free(a);
+
+	/* The long name is found when reading the archive back. */
+	assert((a = archive_read_new()) != NULL);
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_support_format_all(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_open_memory(a, buff, used));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &ae));
+	assertEqualString("iiijjjdddsssppp.o", archive_entry_pathname(ae));
+	assertEqualIntA(a, 2, archive_read_data(a, buff2, sizeof(buff2)));
+	assertEqualMem(buff2, "hi", 2);
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
+}
